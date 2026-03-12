@@ -21,7 +21,15 @@
     "retry",
     "exponential-backoff"
   ],
-  "author": "",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/harshpreet931/opencode-timeout-continuer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/harshpreet931/opencode-timeout-continuer/issues"
+  },
+  "homepage": "https://github.com/harshpreet931/opencode-timeout-continuer#readme",
+  "author": "harshpreet931",
   "license": "MIT",
   "files": [
     "dist",
