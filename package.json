@@ -1,6 +1,6 @@
 {
   "name": "opencode-timeout-continuer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OpenCode CLI plugin for automatic retry on timeout errors with exponential backoff",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
