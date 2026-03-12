@@ -1,0 +1,37 @@
+{
+  "name": "opencode-timeout-continuer",
+  "version": "1.0.0",
+  "description": "OpenCode CLI plugin for automatic retry on timeout errors with exponential backoff",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "timeout",
+    "retry",
+    "exponential-backoff"
+  ],
+  "author": "",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  },
+  "peerDependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
