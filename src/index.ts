@@ -4,34 +4,15 @@ import type { OpenCodeEvent, SessionErrorEventProperties } from './types.js';
 
 /**
  * OpenCode plugin for automatic retry on timeout errors
- * 
- * This plugin automatically retries OpenCode operations when timeout
- * or retryable errors occur, using exponential backoff.
- * 
- * Configuration (in opencode.json):
- * ```json
- * {
- *   "plugin": ["opencode-timeout-continuer"],
- *   "plugin_config": {
- *     "opencode-timeout-continuer": {
- *       "enabled": true,
- *       "maxRetries": 3,
- *       "baseDelayMs": 1000,
- *       "maxDelayMs": 30000,
- *       "prompt": "Continue"
- *     }
- *   }
- * }
- * ```
  */
 
-// Plugin type definition (local, since @opencode-ai/plugin may not be published)
 type Plugin = (input: {
   client: {
     session: {
       prompt: (params: {
         path: { id: string };
         body: { parts: Array<{ type: string; text: string }> };
+        query?: { directory: string };
       }) => Promise<void>;
     };
     app: {
@@ -45,101 +26,103 @@ type Plugin = (input: {
     };
   };
   config?: Record<string, unknown>;
+  directory?: string;
 }) => Promise<{
   event?: (params: { event: OpenCodeEvent }) => Promise<void>;
 }>;
 
-const plugin: Plugin = async ({ client, config }) => {
-  // Get plugin configuration
+const plugin: Plugin = async ({ client, config, directory }) => {
   const pluginConfig = config as Record<string, unknown> | undefined;
   const retryConfig = getConfig(pluginConfig);
-
-  // Initialize retry manager
   const retryManager = new RetryManager(retryConfig);
+  const workingDirectory = directory || '.';
 
-  // Log plugin initialization
   await client.app.log({
     body: {
       service: 'opencode-timeout-continuer',
       level: 'info',
-      message: `Plugin initialized with maxRetries=${retryConfig.maxRetries}, baseDelayMs=${retryConfig.baseDelayMs}`,
+      message: `Plugin initialized with maxRetries=${retryConfig.maxRetries}, baseDelayMs=${retryConfig.baseDelayMs}, directory: ${workingDirectory}`,
     },
   });
 
-  return {
-    event: async ({ event }) => {
-      // Handle session.error
-      if (event.type === 'session.error') {
-        const { sessionID, error } = event.properties as SessionErrorEventProperties;
-
-        if (!sessionID) {
-          return;
-        }
-
-        // Check if we should retry
-        if (retryManager.shouldRetry(sessionID, error)) {
-          const currentCount = retryManager.getCount(sessionID);
+  const hooks = {
+    event: async ({ event }: { event: OpenCodeEvent }) => {
+      try {
+        if (event.type === 'session.error') {
+          const { sessionID, error } = event.properties as SessionErrorEventProperties;
 
           await client.app.log({
             body: {
               service: 'opencode-timeout-continuer',
               level: 'info',
-              message: `Retryable error detected for session ${sessionID}, scheduling retry ${currentCount + 1}/${retryConfig.maxRetries}`,
+              message: `session.error received - sessionID: ${sessionID}`,
             },
           });
 
-          // Schedule retry with exponential backoff
-          retryManager.scheduleRetry(
-            sessionID,
-            async () => {
+          if (sessionID && retryManager.shouldRetry(sessionID, error)) {
+            const currentCount = retryManager.getCount(sessionID);
+
+            await client.app.log({
+              body: {
+                service: 'opencode-timeout-continuer',
+                level: 'info',
+                message: `Retryable error detected, scheduling retry ${currentCount + 1}/${retryConfig.maxRetries}`,
+              },
+            });
+
+            retryManager.scheduleRetry(
+              sessionID,
+              async () => {
+                try {
+                  await client.session.prompt({
+                    path: { id: sessionID },
+                    body: { parts: [{ type: 'text', text: retryConfig.prompt }] },
+                    query: { directory: workingDirectory },
+                  });
+                } catch {
+                  // Callback errors are handled by the event system
+                }
+              },
+              currentCount
+            );
+          }
+        }
+
+        if (event.type === 'message.updated') {
+          const props = event.properties as Record<string, unknown> | undefined;
+          const info = props?.info as Record<string, unknown> | undefined;
+          const sessionID = info?.sessionID as string | undefined;
+          const role = info?.role as string | undefined;
+          const error = info?.error;
+
+          if (sessionID && role === 'assistant' && error) {
+            if (retryManager.shouldRetry(sessionID, error)) {
               try {
                 await client.session.prompt({
                   path: { id: sessionID },
-                  body: {
-                    parts: [{ type: 'text', text: retryConfig.prompt }],
-                  },
+                  body: { parts: [{ type: 'text', text: retryConfig.prompt }] },
+                  query: { directory: workingDirectory },
                 });
-              } catch (err) {
-                await client.app.log({
-                  body: {
-                    service: 'opencode-timeout-continuer',
-                    level: 'error',
-                    message: `Failed to send retry prompt: ${err instanceof Error ? err.message : String(err)}`,
-                  },
-                });
+              } catch {
+                // Callback errors are handled by the event system
               }
-            },
-            currentCount
-          );
-        } else if (error) {
-          // Log non-retryable error for debugging
-          const errInfo = error as { name?: string; data?: { message?: string } };
-          await client.app.log({
-            body: {
-              service: 'opencode-timeout-continuer',
-              level: 'debug',
-              message: `Non-retryable error for session ${sessionID}: ${errInfo.name || 'unknown'} - ${errInfo.data?.message || 'no message'}`,
-            },
-          });
+            }
+          }
         }
-      }
 
-      // Handle session.idle - reset retry state
-      if (event.type === 'session.idle') {
-        const { sessionID } = event.properties;
-        if (sessionID) {
-          retryManager.reset(sessionID);
-          await client.app.log({
-            body: {
-              service: 'opencode-timeout-continuer',
-              level: 'debug',
-              message: `Session ${sessionID} went idle, reset retry state`,
-            },
-          });
+        if (event.type === 'session.idle') {
+          const { sessionID } = event.properties;
+          if (sessionID) {
+            retryManager.reset(sessionID);
+          }
         }
+      } catch {
+        // Event handler errors are logged internally
       }
     },
   };
+
+  return hooks;
 };
 
 export default plugin;

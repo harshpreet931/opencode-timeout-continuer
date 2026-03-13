@@ -15,26 +15,73 @@ export class RetryManager {
    * Check if an error is retryable
    */
   private isRetryableError(error: unknown): boolean {
-    if (!error || typeof error !== 'object') {
+    // Handle null/undefined
+    if (!error) {
       return false;
     }
 
-    const err = error as { name?: string; data?: { isRetryable?: boolean; statusCode?: number } };
+    // Handle string errors
+    if (typeof error === 'string') {
+      const lower = error.toLowerCase();
+      return lower.includes('timeout') || lower.includes('timed out');
+    }
+
+    // Handle non-object types
+    if (typeof error !== 'object') {
+      return false;
+    }
+
+    const err = error as Record<string, unknown>;
+
+    // Check for nested error property (some frameworks wrap errors)
+    if (err.error && typeof err.error === 'object') {
+      const nestedRetryable = this.isRetryableError(err.error);
+      if (nestedRetryable) {
+        return true;
+      }
+    }
 
     // Check for ApiError with isRetryable flag
-    if (err.name === 'ApiError' && err.data?.isRetryable === true) {
+    const data = err.data as Record<string, unknown> | undefined;
+    if (err.name === 'ApiError' && data?.isRetryable === true) {
       return true;
     }
 
     // Check for timeout-related status codes
-    const statusCode = err.data?.statusCode;
+    const statusCode = data?.statusCode as number | undefined;
     if (statusCode && [408, 429, 502, 503, 504].includes(statusCode)) {
       return true;
     }
 
     // Check error name for timeout patterns
-    const errorName = err.name?.toLowerCase() || '';
+    const errorName = String(err.name || '').toLowerCase();
     if (errorName.includes('timeout') || errorName.includes('etimedout')) {
+      return true;
+    }
+
+    // Check error message for timeout patterns
+    const errorMessage = String(err.message || '').toLowerCase();
+    const dataMessage = String(data?.message || '').toLowerCase();
+    const combinedMessage = errorMessage + ' ' + dataMessage;
+    if (combinedMessage.includes('timeout') || combinedMessage.includes('timed out')) {
+      return true;
+    }
+
+    // Check constructor name as fallback
+    const constructorName = (error as object).constructor?.name?.toLowerCase() || '';
+    if (constructorName.includes('timeout')) {
+      return true;
+    }
+
+    // Check for common timeout error names
+    const timeoutErrorNames = ['timeouterror', 'timeout', 'etimedout', 'econnrefused', 'enotfound'];
+    if (timeoutErrorNames.includes(errorName) || timeoutErrorNames.includes(constructorName)) {
+      return true;
+    }
+
+    // If error object is empty but has keys like 'error', check for timeout context
+    const errString = JSON.stringify(err).toLowerCase();
+    if (errString.includes('timeout') || errString.includes('timed out')) {
       return true;
     }
 
@@ -51,7 +98,8 @@ export class RetryManager {
     }
 
     // Check if error is retryable
-    if (!this.isRetryableError(error)) {
+    const retryable = this.isRetryableError(error);
+    if (!retryable) {
       return false;
     }
 
@@ -101,12 +149,22 @@ export class RetryManager {
   }
 
   /**
+   * Check if there's a pending retry for this session
+   */
+  hasPendingRetry(sessionId: string): boolean {
+    const state = this.sessions.get(sessionId);
+    return state?.timeoutId !== undefined;
+  }
+
+  /**
    * Reset retry state for a session (called on session.idle)
+   * But don't reset if there's a pending retry - let the retry complete
    */
   reset(sessionId: string): void {
     const state = this.sessions.get(sessionId);
+    // Don't reset if there's a pending retry - let it execute
     if (state?.timeoutId) {
-      clearTimeout(state.timeoutId);
+      return;
     }
     this.sessions.delete(sessionId);
   }

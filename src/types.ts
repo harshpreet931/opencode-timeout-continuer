@@ -68,4 +68,5 @@ export interface SessionIdleEventProperties {
  */
 export type OpenCodeEvent = 
   | { type: 'session.error'; properties: SessionErrorEventProperties }
-  | { type: 'session.idle'; properties: SessionIdleEventProperties };
+  | { type: 'session.idle'; properties: SessionIdleEventProperties }
+  | { type: 'message.updated'; properties: { info?: { sessionID?: string; role?: string; error?: unknown } } };
