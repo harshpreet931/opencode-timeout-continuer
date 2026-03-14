@@ -55,7 +55,7 @@ const plugin: Plugin = async ({ client, config, directory }) => {
             body: {
               service: 'opencode-timeout-continuer',
               level: 'info',
-              message: `session.error received - sessionID: ${sessionID}`,
+              message: `session.error received - sessionID: ${sessionID}, error: ${JSON.stringify(error).slice(0, 500)}`,
             },
           });
 
@@ -66,7 +66,7 @@ const plugin: Plugin = async ({ client, config, directory }) => {
               body: {
                 service: 'opencode-timeout-continuer',
                 level: 'info',
-                message: `Retryable error detected, scheduling retry ${currentCount + 1}/${retryConfig.maxRetries}`,
+                message: `Retryable error detected, scheduling retry ${currentCount + 1}/${retryConfig.maxRetries}. Error: ${JSON.stringify(error).slice(0, 500)}`,
               },
             });
 

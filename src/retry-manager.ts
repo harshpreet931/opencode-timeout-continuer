@@ -41,9 +41,10 @@ export class RetryManager {
       }
     }
 
-    // Check for ApiError with isRetryable flag
+    // Check for ApiError with isRetryable flag (handle both 'ApiError' and 'APIError' case variations)
     const data = err.data as Record<string, unknown> | undefined;
-    if (err.name === 'ApiError' && data?.isRetryable === true) {
+    const errorNameStr = String(err.name || '');
+    if ((errorNameStr === 'ApiError' || errorNameStr === 'APIError') && data?.isRetryable === true) {
       return true;
     }
 
